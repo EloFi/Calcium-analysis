@@ -53,5 +53,5 @@ A typical install time on a 'normal' computer (between 8 and 16 Go RAM) is betwe
 
 The sent .txt files correspond to a set of data
   > "Results.txt" file contains the intensity of the cells in function of samples (one row one sample, one column one sample)
-  > "Results.txt" file contains the coordinates of the cells
+  > "Resultsxy.txt" file contains the coordinates of the cells
 The instructions described in '3.' apply for this data set
