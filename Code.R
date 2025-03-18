@@ -1,3 +1,4 @@
+###This code is used to process data for the article " " 
 #Copyright (C) 2022-2026 F. Appaix, Univ. Grenoble Alpes, Grenoble, France.
 
 #This program is free software: you can redistribute it and/or modify
@@ -32,33 +33,25 @@ library(raster)
 library(memisc)
 library(mgcv)
 
-
-Results <- read.table("/path/to/Data/Results.txt", header = TRUE, sep = "\t")
-Resultsxy <- read.table("/path/to/Data/Resultsxy.txt", header = TRUE, sep = "\t")
+###Open dataset
+Results <- read.table("/Path/to/Data/Results.txt", header = TRUE, sep = "\t")
+Resultsxy <- read.table("/Path/to/Data/Resultsxy.txt", header = TRUE, sep = "\t")
 
 ###Time for 15.3Hz imaging
 Fq <- 15.3
 dt <- (1 / Fq)
 Time <- (Results$X - 1) * dt * 1000
 
-####Remove X column
+####Remove X column from the raw data
 Results$X <- NULL
 Resultsxy$X.1 <- NULL
 
-###FOR Results data Frame with NaN only!!!
-Results <- Results[ ,!sapply(Results, function(x) all(is.nan(x)))]
-Resultsxy <- na.omit(Resultsxy)
-
-####Window size for rolling window and n parameter for Savitzky Golay filter 
-windowSizeF0 <- Fq * 10#10 sec
-
-#Plot a cell to define the Nb of stimulations
-plot(Results$Mean30, type='l')#cell '30' for instance
+#Plot a cell to define the Nb of stimulation during the recording
+plot(Results$Mean42, type='l')#cell '42' for instance
 #Total Nb of Stims
-Nb = 7
+Nb = 10
 
 WindowStim <- length(Time) / Nb
-
 FindPeaksRes <- as.matrix(rollapply(Results, width = WindowStim, FUN = function(x) max(x), by = WindowStim))
 
 row <- FindPeaksRes
@@ -84,15 +77,16 @@ for (i in 1:ncol(n))
     n[j, i][which(n[j, i] < 0)] <- 0
   }}
 
-#ATTENTION n is the delay from the start of the recording to have the window get the peak properly, it can be 0!
+##n is the delay from the start of the recording to have the window get the peak properly, it can be 0!
 for (i in 1:(Nb)){
-  abline(v = n[30, i], col = 'red')#Row nb is the cell nb from 'plot' (line60)
+  abline(v = n[30, i], col = 'red')#Row nb is the cell nb from 'plot' (line53)
 }
 
 ####Create a 10sec rolling window with 50% of lowest values
+windowSizeF0 <- Fq * 10
 F0 <- as.data.frame(rollapply(Results, width = windowSizeF0, FUN = function(z) mean(z[z < quantile(z, 0.5)]), partial = TRUE, fill = NULL, by.column = TRUE))
 
-###DF/F0
+###DF = deltaF/F0
 DF <- (Results - F0) / F0
 DF <- as.data.frame(mapply(FUN = function(x) ifelse(!is.na(x), x ,0), DF))
 
@@ -108,9 +102,8 @@ for (i in 2:(Nb - 1)){
 colnames(WindowStimDF)[1] <- 'V1'
 
 nStim <- 5 ###Nb of stims kept
-###Check Peaks below, if there are not 5 rows, try with a value!!
 WindowStimDF1 <- mean(WindowStimDF[ ,1], na.rm = T)
-#WindowStimDF1 <- 130
+
 row7 <- mean(row[[7]], na.rm = T)
 
 if(Nb >= 7){
@@ -180,7 +173,7 @@ Starts <- Peaksdf
 for (i in 1:ncol(DFfilt))
 {
   for (k in 1:nrow(Peaksdf)){
-    if((Peaksdf[k, i] >= mean(Peaks[1, ], na.rm = T) / 2) & (!is.na(Peaksdf[k, i]))){
+    if((Peaksdf[k, i] >= mean(na.omit(Peaks[1, ])) / 2) & (!is.na(Peaksdf[k, i]))){
       z <- Peaksdf[k, i]
       Startstemp <- DFfilt[z, i]
       while (Startstemp > DFfiltmean[k + 1, i])
@@ -214,9 +207,6 @@ names(Yst) <- names(Startsdf)
 
 ####Find Time (Xst) for each peak start  
 Xst <- as.data.frame(lapply(FUN = function(x) Time[x], Startsdf))
-
-## Mean ampl MSNs DMS all animals 
-MeanAmpl_MSN <- 3.3535#Calculated value
 
 ###Mean Ampl Peak/cell
 Ydelta <- as.data.frame(mapply('-', Ymax, Yst))
@@ -258,7 +248,7 @@ Endsdf <- as.data.frame(Ends)
 Yend <- Endsdf
 for (i in 1:ncol(Endsdf)){
   for (j in 1:nrow(Endsdf)){
-    if (Endsdf[j, i] != 1){
+    if (!is.na(Endsdf[j, i])){
       Yend[j, i] = DFfilt[(Endsdf[j, i]), i]
     }else{Yend[j, i] <- 0}
   }}
@@ -277,9 +267,36 @@ if(Nb >= 7){
   th <- as.matrix(mapply(FUN = function (x) (mean(x) + 2 * sd(x)), DF[c(WindowStim:(Nb * WindowStim)), ]))#keep the same window as above, Findpeaks part.
 }
 
+####Plot all curves : Raw data, DF, DFfilt AND ablines for Max, start and End peaks
+par(mfrow = c(1, 1))
+for (i in 1:ncol(DF))
+{
+  par(mar = c(5, 4, 4, 6) + 0.1)
+  plot(Time, DF[[i]], axes = FALSE, ylim = c(Min, max), xlab = " ", ylab = " ", type = 'l', main = i)
+  mtext("DF/F0", side = 2, line = 2.5)
+  axis(2, ylim = c(Min, max), las = 1) 
+  lines(Time, DFfilt[[i]], col = 2, lwd = 2)
+  mtext("Time (msec)", side = 1, line = 2.5)
+  axis(1, xlim = c(Time))
+  abline(v = Xmax[[i]][which(Xmax[[i]] != 0)], col = "darkblue", lwd = 2.5)  
+  abline(v = Xst[[i]][which(Xst[[i]] != 0)], col = "orange")
+  abline(v = Xend[[i]][which(Xend[[i]] != 0)], col = "purple", lwd = 2)
+  abline(h = th[[i]], col = "black", lwd = 2)
+  box()
+  par(new = T)
+  plot(Time, Results[[i]], axes = FALSE, xlab = " ", ylab = " ", type = "l", col = "green3")
+  mtext("Results", side = 4, col = "green3", line = 4) 
+  axis(4, col.axis = "green3")
+  legend("topright",
+         legend = c("Results", "DF", "DFfilt"),
+         text.col = c("green3", "black", "red"),
+         col = c("green3", "black", "red"),
+         pch = 20,
+         cex = .75)
+}
 
-###Interneurons = indicate the #cells of interneurons
-In <- matrix(c(1, 2))#N° of the columns, can be several cells
+###Interneurons = weird cells + SST
+In <- matrix(c(11, 20, 34, 39, 43, 72, 75, 80))#N° of the columns
 
 ###Time For the Decay, Time for the peak response
 DTime <- as.data.frame(mapply('-', Xend, Xmax))
@@ -305,8 +322,8 @@ Table$Celltype <- paste0("MSN", Table[c(1:nrow(Mean)), 10])
 Table[In, 10] <- "InterNeu"
 Table[which(Table$Celltype == "InterNeu"), 1] <- 0
 
-###Identify the SST IN on the map and add SST calculated values
-SST <- matrix(c(1, 2))#N° for SST
+###Identify the SST on the map and add SST calculated values
+SST <- matrix(c(11, 80))#N° for SST
 SSTdf <- data.frame(Table[SST, 7:9])
 Table[SST, 10] <- "SST"
 
@@ -322,6 +339,9 @@ NonActCell <- which(Table$ActCell == 0)
 Table[NonActCell, 1] <- 0
 Table[which(Table$Celltype == "InterNeu"), 11] <- 0
 RActCell <- (length(ActCell) / length(Resultsxy$X)) * 100 # % act cells
+
+##Calculated value for the Mean amplitude MSNs (DMS) from all animals 
+MeanAmpl_MSN <- 3.3535
 
 ###Order Table with Ampl
 Tableorder <- Table[order(Table[ ,1]), ]
@@ -363,57 +383,63 @@ pts_LA <- Table[!(Table$Cells %in% pts_HA), 9]
 Ampl_LA <- as.matrix(Table_MeanAmpl[pts_LA])
 Mean_Ampl_LA <- mean(Ampl_LA)
 
+###Map
+par(mfrow = c(1, 1))
+plot(Tableorder$X, Tableorder$Y, xlim = c(0, 392.66), ylim = c(0, 392.66), type = "p", col = "black", pch = 1, cex = 2.5, lwd = 1, ann = FALSE, axes = FALSE)
+points(Tableorder$X, Tableorder$Y, col = col20hz, pch = 16, cex = 2)
+points(TableHAlxy$X, TableHAlxy$Y, col = "green", cex = 2, lwd = 2)
+points(SSTdf[1:2], col = 'blue', pch = 12, cex = 3)
+textxy(Tableorder$X, Tableorder$Y, Tableorder$Cells, col = "black", cex = .8)
+legend("bottomright",
+       legend = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"),
+       fill = c("yellow", "gold", "orange", "tomato", "red", "red2", "red4", "purple", "darkorchid3", "darkorchid4"),
+       ncol = 2, 
+       cex = 0.75,
+       title = expression(paste(Delta, " F/F ")))
 
 ###MeanAmpl MSN within the slice
-MeanAmpl_MSN <- mean(Tableorder[which(Tableorder[ ,11] != 0), 1])
+MeanAmpl_MSN <- mean(Tableorder[which(Tableorder[ , 11] != 0), 1])
 
-###SST DF -> DFfilt
+###SST: DF -> DFfilt
 Fs <- 15.3
 bf1 <- butter(4, 1/(Fs/2), type="low")
-SST_DF <- DF[ , SST]
-SST_DFfilt <- filtfilt(bf1, SST_DF)
+SST_DF <- DF[ , c(SST)]
+SST_DFfilt <- as.data.frame(lapply(SST_DF, function(x) filtfilt(bf1, x)))
 
-###SST find start and Peak
-par(mfrow=c(1,1))
+###SST: find start and Peak
 SST_DFfilt <- as.matrix(SST_DFfilt)
-Nb = 7
-WindowStim <- 1000/Nb
 
 FindPeaks_SST_DFfilt <- rollapply(SST_DFfilt, width=WindowStim, FUN=function(x) max(x), by=WindowStim)
+FindPeaks_SST_DFfilt <- FindPeaks_SST_DFfilt[2:6, ]###Take 5 peaks
 Peaks_SST_DFfilt <- FindPeaks_SST_DFfilt
-for (j in 1:nrow(FindPeaks_SST_DFfilt)){
-  z <- which(SST_DFfilt[] == FindPeaks_SST_DFfilt[j])
-  if (length(z) > 1){
-    z <- z[[1]]
-    Peaks_SST_DFfilt[j] <- z
-  }else{Peaks_SST_DFfilt[j] <- which(SST_DFfilt[ ] == FindPeaks_SST_DFfilt[j])}
+for (i in 1:ncol(SST_DFfilt)){
+for (j in 1:nrow(FindPeaks_SST_DFfilt))
+  {
+  z <- FindPeaks_SST_DFfilt[j, i]
+    Peaks_SST_DFfilt[j, i] <- as.matrix(which(SST_DFfilt[ ,i] == z))
+}
 }
 
 Wind_SST_DFfilt <- data.frame(matrix(Peaks_SST_DFfilt[1] - (WindowStim/2)))
-for (i in 2:(Nb)){
+for (i in 2:5){
   Wind_SST_DFfilt[i] <- (Peaks_SST_DFfilt[i] - (WindowStim/2))
 }
 colnames(Wind_SST_DFfilt)[1] <- 'V1' 
+Wind_SST_DFfilt <- t(Wind_SST_DFfilt)
 
+Peaks_SST_DFfilt <- data.frame(Peaks_SST_DFfilt)
 Findstart_SST_DFfilt <- FindPeaks_SST_DFfilt
-###SOIT
+for (j in 1:ncol(Peaks_SST_DFfilt)){
 for (i in 1:5){
-  Findstart_SST_DFfilt[i, ] <- min(SST_DFfilt[(Wind_SST_DFfilt[ ,i+1]+10):(Wind_SST_DFfilt[ ,i+1]+10), ])
+  Findstart_SST_DFfilt[i, j] <- as.matrix(min(SST_DFfilt[(Wind_SST_DFfilt[i, 1]+10):(Peaks_SST_DFfilt[i, j]), j]))
 }
-###OU le plus simple, les callées entre les pics et on prend le 1er
-Findstart_SST_DFfilt[1,] <- min(SST_DFfilt[0:Peaks_SST_DFfilt[1,],])
-for (i in 2:5){
-  Findstart_SST_DFfilt[i,] <- min(SST_DFfilt[Peaks_SST_DFfilt[i-1,]:Peaks_SST_DFfilt[i,],])
 }
-###OU
-Findstart_SST_DFfilt[1,] <- min(SST_DFfilt[(Wind_SST_DFfilt[,1]):(Wind_SST_DFfilt[,2])])
-for (i in 1:5){
-  Findstart_SST_DFfilt[i,] <- min(SST_DFfilt[Peaks_SST_DFfilt[i,1]:Peaks_SST_DFfilt[i+1,]])
-}
-###OU celui-là c'est si on ne prend pas le 1er pic
-Findstart_SST_DFfilt[1,] <- min(SST_DFfilt[(Wind_SST_DFfilt[,2]+10):(Wind_SST_DFfilt[,2]+(Wind_SST_DFfilt[,3]-Wind_SST_DFfilt[,2])/2),])
-for (i in 2:5){
-  Findstart_SST_DFfilt[i-1,] <- min(SST_DFfilt[(Wind_SST_DFfilt[,i]+10):(Wind_SST_DFfilt[,i]+(Wind_SST_DFfilt[,i+1]-Wind_SST_DFfilt[,i])/2),])
-}
-Findstart_SST_DFfilt[5,] <- min(SST_DFfilt[(Wind_SST_DFfilt[,6]):Peaks_SST_DFfilt[6,],])
 
+Start_SST_DFfilt <- Findstart_SST_DFfilt
+for (i in 1:ncol(SST_DFfilt)){
+  for (j in 1:nrow(Findstart_SST_DFfilt))
+  {
+    w <- Findstart_SST_DFfilt[j, i]
+    Start_SST_DFfilt[j, i] <- as.matrix(which(SST_DFfilt[ ,i] == w))
+  }
+}
